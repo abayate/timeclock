@@ -1,5 +1,5 @@
 // Network first so updates show up right away; falls back to the cache when offline.
-const CACHE = 'timeclock-v1';
+const CACHE = 'timeclock-v3';
 const FILES = [
   './', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest',
   'template/invoice-template.docx', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png',

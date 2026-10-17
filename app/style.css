@@ -8,6 +8,7 @@
   --accent-text: #ffffff;
   --go: #1f8a4c;
   --stop: #c0392b;
+  --warn: #b5650d;
   color-scheme: light dark;
 }
 @media (prefers-color-scheme: dark) {
@@ -21,6 +22,7 @@
     --accent-text: #0f141a;
     --go: #3bb36f;
     --stop: #e0604f;
+    --warn: #f0a04b;
   }
 }
 
@@ -97,6 +99,24 @@ label.file input { border: 0; padding: 6px 0 0; background: none; color: var(--m
 .days input:checked + span { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 
 .hint { color: var(--muted); font-size: 14px; }
+
+.owed { display: flex; flex-direction: column; align-items: center; padding: 18px 14px; }
+.owed strong { font-size: 40px; font-variant-numeric: tabular-nums; color: var(--accent); }
+.list li .right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.list li button.small { width: auto; margin: 0; padding: 6px 12px; font-size: 14px; border-radius: 999px; }
+.st-made { color: var(--muted); }
+.st-sent { color: var(--warn); font-weight: 600; }
+.st-paid { color: var(--go); font-weight: 600; }
+.list li.bar-row { display: block; }
+.bar-top { display: flex; justify-content: space-between; margin-bottom: 6px; }
+.bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; margin-bottom: 6px; }
+.bar span { display: block; height: 100%; border-radius: 4px; }
+.bar .paid { background: var(--go); }
+.bar .sent { background: var(--warn); }
+.bar .made { background: var(--muted); }
+.check { align-items: flex-end; }
+.check .tick { flex: 0 0 90px; display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 16px; padding-bottom: 10px; }
+.check .tick input { width: 22px; height: 22px; margin: 0; }
 .out { margin: 8px 0; }
 .hidden { display: none !important; }
 
@@ -105,7 +125,7 @@ label.file input { border: 0; padding: 6px 0 0; background: none; color: var(--m
   display: flex; background: var(--card); border-top: 1px solid var(--line);
   padding-bottom: env(safe-area-inset-bottom);
 }
-.tabs button { flex: 1; background: none; color: var(--muted); border-radius: 0; margin: 0; padding: 16px 4px; font-size: 14px; }
+.tabs button { flex: 1; min-width: 0; background: none; color: var(--muted); border-radius: 0; margin: 0; padding: 16px 2px; font-size: 13px; }
 .tabs button.active { color: var(--accent); }
 
 dialog { border: 0; border-radius: 16px; padding: 16px; width: min(92vw, 420px); background: var(--card); color: var(--text); }

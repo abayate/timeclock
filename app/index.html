@@ -55,6 +55,7 @@
       </div>
       <div class="card">
         <div class="row"><span>Invoice</span><strong id="invNumber">#10</strong></div>
+        <div class="row"><span>Status</span><strong id="invStatus"></strong></div>
         <div class="row"><span>Shifts</span><strong id="invShifts">0</strong></div>
         <div class="row"><span>Total hours</span><strong id="invHours">0.00</strong></div>
         <div class="row"><span>Rate</span><strong id="invRate">$0.00</strong></div>
@@ -69,7 +70,40 @@
         <button id="sharePdfBtn">Share PDF</button>
         <button id="shareDocxBtn" class="secondary">Share Word file</button>
       </div>
+      <button id="markSentBtn" class="secondary hidden">✓ Mark as sent to boss</button>
       <p class="hint">Uses template: <span id="templateName"></span></p>
+    </section>
+
+    <!-- PAID -->
+    <section id="tab-paid" class="tab">
+      <div class="card owed">
+        <span class="hint">Owed to you</span>
+        <strong id="owedTotal">$0.00</strong>
+        <span class="hint" id="owedCount"></span>
+      </div>
+      <ul id="invoiceList" class="list"></ul>
+      <p class="hint">Tap an invoice to change its amount or dates.</p>
+    </section>
+
+    <!-- INCOME -->
+    <section id="tab-income" class="tab">
+      <div class="month-bar">
+        <button class="ghost" id="yearPrev" aria-label="Previous year">‹</button>
+        <strong class="month-label" id="yearLabel"></strong>
+        <button class="ghost" id="yearNext" aria-label="Next year">›</button>
+      </div>
+      <div class="card owed">
+        <span class="hint">Total invoiced</span>
+        <strong id="incTotal">$0.00</strong>
+      </div>
+      <div class="card">
+        <div class="row"><span>Received</span><strong id="incReceived" class="st-paid">$0.00</strong></div>
+        <div class="row"><span>Still owed</span><strong id="incOwed" class="st-sent">$0.00</strong></div>
+        <div class="row"><span>Hours on record</span><strong id="incHours">—</strong></div>
+      </div>
+      <p class="hint" id="incMissing"></p>
+      <ul id="incomeList" class="list"></ul>
+      <p class="hint">Totals include the wire fee on each invoice.</p>
     </section>
 
     <!-- SETTINGS -->
@@ -106,6 +140,8 @@
     <button data-tab="clock" class="active">Clock</button>
     <button data-tab="hours">Hours</button>
     <button data-tab="invoice">Invoice</button>
+    <button data-tab="paid">Paid</button>
+    <button data-tab="income">Income</button>
     <button data-tab="settings">Settings</button>
   </nav>
 
@@ -122,6 +158,25 @@
         <button value="cancel" class="secondary" formnovalidate>Cancel</button>
       </div>
       <button value="delete" id="fDelete" class="danger" formnovalidate>Delete shift</button>
+    </form>
+  </dialog>
+
+  <dialog id="invDialog">
+    <form method="dialog">
+      <h2 id="invDialogTitle">Invoice</h2>
+      <label>Amount ($)<input id="iAmount" type="number" step="0.01" min="0" inputmode="decimal"></label>
+      <div class="two check">
+        <label class="tick"><input id="iSent" type="checkbox"> Sent</label>
+        <label>Sent on<input id="iSentOn" type="date"></label>
+      </div>
+      <div class="two check">
+        <label class="tick"><input id="iPaid" type="checkbox"> Paid</label>
+        <label>Paid on<input id="iPaidOn" type="date"></label>
+      </div>
+      <div class="actions">
+        <button value="save">Save</button>
+        <button value="cancel" class="secondary" formnovalidate>Cancel</button>
+      </div>
     </form>
   </dialog>
 

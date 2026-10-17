@@ -17,9 +17,10 @@ function defaultState() {
   return {
     shifts: [],
     active: null,
-    // Invoice number used for each month ('YYYY-MM' -> number). September 2026 was #9.
-    invoices: { '2026-09': 9 },
-    nextInvoice: 10,
+    // One record per invoiced month: 'YYYY-MM' -> { number, amount, hours, madeOn, sent, sentOn, paid, paidOn }.
+    // Past invoices come in through a backup restore, so no personal amounts live in this (public) code.
+    invoices: {},
+    nextInvoice: 10, // September 2026 was #9
     settings: {
       name: '', email: '', billTo: '', rate: 0, wireFee: 15, notes: '',
       days: [2, 4, 5], start: '10:00', end: '15:00',
@@ -30,12 +31,15 @@ function defaultState() {
 // Merge saved data over defaults and make sure the next invoice number is above every one already used.
 function fromSaved(saved) {
   const base = defaultState();
-  const s = {
-    ...base, ...saved,
-    settings: { ...base.settings, ...saved.settings },
-    invoices: { ...base.invoices, ...saved.invoices },
-  };
-  s.nextInvoice = Math.max(Number(s.nextInvoice) || 1, base.nextInvoice, ...Object.values(s.invoices).map((n) => n + 1));
+  const savedInvoices = saved.invoices || {};
+  const invoices = {};
+  for (const ym of new Set([...Object.keys(base.invoices), ...Object.keys(savedInvoices)])) {
+    const v = savedInvoices[ym];
+    // Older versions stored just the number for a month.
+    invoices[ym] = typeof v === 'number' ? { ...base.invoices[ym], number: v } : { ...base.invoices[ym], ...v };
+  }
+  const s = { ...base, ...saved, settings: { ...base.settings, ...saved.settings }, invoices };
+  s.nextInvoice = Math.max(Number(s.nextInvoice) || 1, base.nextInvoice, ...Object.values(invoices).map((r) => r.number + 1));
   return s;
 }
 
@@ -338,6 +342,7 @@ function invoiceData(ym, number) {
     subtotal: money(subtotal),
     wire_fee: money(wireFee),
     total: money(subtotal + wireFee),
+    amount: subtotal + wireFee,
   };
 }
 
@@ -382,15 +387,24 @@ async function docxToPdf(docxBlob) {
 let madeFiles = { pdf: null, docx: null };
 
 // A month keeps its number once invoiced; a new month gets the next number.
-const invoiceNumberFor = (ym) => state.invoices[ym] ?? state.nextInvoice;
+const invoiceNumberFor = (ym) => state.invoices[ym]?.number ?? state.nextInvoice;
+
+function statusText(rec) {
+  const on = (ymd) => (ymd ? ` ${fmtDate(ymd, { month: 'short', day: 'numeric' })}` : '');
+  if (rec.paid) return `Paid${on(rec.paidOn)}`;
+  if (rec.sent) return `Sent${on(rec.sentOn)}, not paid yet`;
+  return 'Made, not sent yet';
+}
 
 function renderInvoice() {
   const data = invoiceData(viewMonth, 1);
-  const done = state.invoices[viewMonth] != null;
+  const rec = state.invoices[viewMonth];
   $('invNumber').textContent = `#${invoiceNumberFor(viewMonth)}`;
-  $('invNumberHint').textContent = done
-    ? `${monthName(viewMonth)} was already invoiced as #${state.invoices[viewMonth]}. Making it again keeps the same number.`
+  $('invStatus').textContent = rec ? statusText(rec) : 'Not made yet';
+  $('invNumberHint').textContent = rec
+    ? `${monthName(viewMonth)} was already invoiced as #${rec.number}. Making it again keeps the same number.`
     : `Next invoice number. It goes up by one each month and can't go backward.`;
+  $('markSentBtn').classList.toggle('hidden', !rec || !!rec.sent);
   $('invShifts').textContent = data.shifts.length;
   $('invHours').textContent = data.total_hours;
   $('invRate').textContent = `$${data.rate}/hr`;
@@ -405,6 +419,8 @@ $('makeInvoiceBtn').addEventListener('click', async () => {
   const data = invoiceData(viewMonth, number);
   if (!data.shifts.length) { toast('No shifts in this month yet'); return; }
   if (!state.settings.rate) toast('Tip: set your hourly rate in Settings');
+  const rec = state.invoices[viewMonth];
+  if (rec && rec.sent && !confirm(`Invoice #${number} was already sent. Make it again with the current hours? Your boss may have the old version.`)) return;
   btn.disabled = true;
   btn.textContent = 'Making invoice…';
   try {
@@ -415,10 +431,10 @@ $('makeInvoiceBtn').addEventListener('click', async () => {
       docx: new File([docxBlob], `${base}.docx`, { type: DOCX_TYPE }),
       pdf: new File([pdfBlob], `${base}.pdf`, { type: 'application/pdf' }),
     };
-    if (state.invoices[viewMonth] == null) {
-      state.invoices[viewMonth] = number;
-      state.nextInvoice = number + 1;
-    }
+    if (!rec) state.nextInvoice = number + 1;
+    state.invoices[viewMonth] = {
+      ...rec, number, amount: data.amount, hours: Number(data.total_hours), madeOn: nyNow().date,
+    };
     save();
     $('invoiceMsg').textContent = `Invoice #${number} for ${data.period}: ${data.total_hours} h, $${data.total}`;
     $('invoiceOut').classList.remove('hidden');
@@ -435,6 +451,156 @@ $('makeInvoiceBtn').addEventListener('click', async () => {
 // Sharing has to start from a tap, so the share buttons appear after the files are made.
 $('sharePdfBtn').addEventListener('click', () => madeFiles.pdf && deliver([madeFiles.pdf]));
 $('shareDocxBtn').addEventListener('click', () => madeFiles.docx && deliver([madeFiles.docx]));
+$('markSentBtn').addEventListener('click', () => markInvoice(viewMonth, 'sent'));
+
+// ---------- paid (invoice history) ----------
+
+function markInvoice(ym, step) {
+  const rec = state.invoices[ym];
+  if (!rec) return;
+  const today = nyNow().date;
+  rec.sent = true;
+  rec.sentOn = rec.sentOn || today;
+  if (step === 'paid') {
+    rec.paid = true;
+    rec.paidOn = today;
+  }
+  save();
+  toast(`Invoice #${rec.number} marked ${step}`);
+  render();
+}
+
+// Saved amount, or for invoices made before amounts were saved, the amount from that month's shifts.
+function invoiceAmount(ym) {
+  const rec = state.invoices[ym];
+  if (rec.amount != null) return rec.amount;
+  return shiftsIn(ym).length ? invoiceData(ym, rec.number).amount : null;
+}
+
+function renderPaid() {
+  const months = Object.keys(state.invoices).sort().reverse();
+  const owed = months.filter((ym) => state.invoices[ym].sent && !state.invoices[ym].paid);
+  $('owedTotal').textContent = `$${money(owed.reduce((t, ym) => t + Number(invoiceAmount(ym) || 0), 0))}`;
+  $('owedCount').textContent = owed.length === 1 ? '1 invoice sent and not paid' : `${owed.length} invoices sent and not paid`;
+  const ul = $('invoiceList');
+  ul.innerHTML = '';
+  for (const ym of months) {
+    const rec = state.invoices[ym];
+    const li = document.createElement('li');
+    li.innerHTML = `<div><div class="when"></div><div class="times inv-status"></div></div><div class="right"><div class="hrs"></div></div>`;
+    li.querySelector('.when').textContent = `#${rec.number} · ${monthName(ym)}`;
+    const st = li.querySelector('.inv-status');
+    st.textContent = statusText(rec);
+    st.classList.add(rec.paid ? 'st-paid' : rec.sent ? 'st-sent' : 'st-made');
+    const amount = invoiceAmount(ym);
+    li.querySelector('.hrs').textContent = amount != null ? `$${money(amount)}` : '—';
+    if (!rec.paid) {
+      const b = document.createElement('button');
+      b.className = 'small';
+      b.textContent = rec.sent ? 'Mark paid' : 'Mark sent';
+      b.addEventListener('click', (e) => { e.stopPropagation(); markInvoice(ym, rec.sent ? 'paid' : 'sent'); });
+      li.querySelector('.right').appendChild(b);
+    }
+    li.addEventListener('click', () => openInvoice(ym));
+    ul.appendChild(li);
+  }
+}
+
+// ---------- income (yearly totals) ----------
+
+let viewYear = Number(nyNow().date.slice(0, 4));
+
+$('yearPrev').addEventListener('click', () => { viewYear--; render(); });
+$('yearNext').addEventListener('click', () => { viewYear++; render(); });
+
+function renderIncome() {
+  $('yearLabel').textContent = viewYear;
+  const months = Object.keys(state.invoices).filter((ym) => ym.startsWith(`${viewYear}-`)).sort();
+  let total = 0, received = 0, owed = 0, hoursSum = 0;
+  const missing = [];
+  const rows = months.map((ym) => {
+    const rec = state.invoices[ym];
+    const amount = invoiceAmount(ym);
+    const hrs = rec.hours ?? (shiftsIn(ym).length ? sumMinutes(shiftsIn(ym)) / 60 : null);
+    if (amount == null) missing.push(fmtDate(`${ym}-01`, { month: 'long' }));
+    else {
+      total += amount;
+      if (rec.paid) received += amount;
+      else if (rec.sent) owed += amount;
+    }
+    if (hrs != null) hoursSum += hrs;
+    return { ym, rec, amount, hrs };
+  });
+
+  $('incTotal').textContent = `$${money(total)}`;
+  $('incReceived').textContent = `$${money(received)}`;
+  $('incOwed').textContent = `$${money(owed)}`;
+  $('incHours').textContent = hoursSum ? hoursSum.toFixed(2) : '—';
+  $('incMissing').textContent = missing.length
+    ? `Missing an amount: ${missing.join(', ')}. Tap the month to add it.`
+    : '';
+
+  const max = Math.max(1, ...rows.map((r) => r.amount || 0));
+  const ul = $('incomeList');
+  ul.innerHTML = rows.length ? '' : '<li class="empty">No invoices this year</li>';
+  for (const { ym, rec, amount } of rows) {
+    const li = document.createElement('li');
+    li.className = 'bar-row';
+    li.innerHTML = `<div class="bar-top"><span class="when"></span><span class="hrs"></span></div><div class="bar"><span></span></div><div class="times inv-status"></div>`;
+    li.querySelector('.when').textContent = fmtDate(`${ym}-01`, { month: 'long' });
+    li.querySelector('.hrs').textContent = amount != null ? `$${money(amount)}` : 'amount missing';
+    const fill = li.querySelector('.bar span');
+    fill.style.width = `${amount != null ? Math.max(2, (amount / max) * 100) : 0}%`;
+    fill.className = rec.paid ? 'paid' : rec.sent ? 'sent' : 'made';
+    const st = li.querySelector('.inv-status');
+    st.textContent = `#${rec.number} · ${statusText(rec)}`;
+    st.classList.add(rec.paid ? 'st-paid' : rec.sent ? 'st-sent' : 'st-made');
+    li.addEventListener('click', () => openInvoice(ym));
+    ul.appendChild(li);
+  }
+}
+
+let editingMonth = null;
+
+function openInvoice(ym) {
+  const rec = state.invoices[ym];
+  editingMonth = ym;
+  $('invDialogTitle').textContent = `Invoice #${rec.number} · ${monthName(ym)}`;
+  $('iAmount').value = invoiceAmount(ym) ?? '';
+  $('iSent').checked = !!rec.sent;
+  $('iSentOn').value = rec.sentOn || '';
+  $('iPaid').checked = !!rec.paid;
+  $('iPaidOn').value = rec.paidOn || '';
+  $('invDialog').showModal();
+}
+
+// Checking a box fills in today's date; paid implies sent.
+$('iSent').addEventListener('change', (e) => {
+  if (e.target.checked && !$('iSentOn').value) $('iSentOn').value = nyNow().date;
+  if (!e.target.checked) $('iPaid').checked = false;
+});
+$('iPaid').addEventListener('change', (e) => {
+  if (e.target.checked) {
+    if (!$('iPaidOn').value) $('iPaidOn').value = nyNow().date;
+    if (!$('iSent').checked) $('iSent').click();
+  }
+});
+
+$('invDialog').addEventListener('close', () => {
+  const rec = state.invoices[editingMonth];
+  if ($('invDialog').returnValue === 'save' && rec) {
+    const amount = $('iAmount').value;
+    rec.amount = amount === '' ? undefined : Number(amount);
+    rec.sent = $('iSent').checked;
+    rec.sentOn = rec.sent ? $('iSentOn').value || undefined : undefined;
+    rec.paid = $('iPaid').checked;
+    rec.paidOn = rec.paid ? $('iPaidOn').value || undefined : undefined;
+    save();
+    toast('Invoice updated');
+  }
+  editingMonth = null;
+  render();
+});
 
 async function deliver(files) {
   if (navigator.canShare && navigator.canShare({ files })) {
@@ -522,6 +688,8 @@ function render() {
   renderClock();
   renderHours();
   renderInvoice();
+  renderPaid();
+  renderIncome();
   renderSettings();
 }
 
